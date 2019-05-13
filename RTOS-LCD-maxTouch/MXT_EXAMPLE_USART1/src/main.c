@@ -139,32 +139,57 @@ typedef struct {
 
 QueueHandle_t xQueueTouch;
 
-/** Header printf */
-#define STRING_EOL    "\r"
-#define STRING_HEADER "-- AFEC Temperature Sensor Example --\r\n" \
-"-- "BOARD_NAME" --\r\n" \
-"-- Compiled: "__DATE__" "__TIME__" --"STRING_EOL
-
-/** Reference voltage for AFEC,in mv. */
-#define VOLT_REF        (3300)
-
-/** The maximal digital value */
-/** 2^12 - 1                  */
-#define MAX_DIGITAL     (4095)
-
+// /** Header printf */
+// #define STRING_EOL    "\r"
+// #define STRING_HEADER "-- AFEC Temperature Sensor Example --\r\n" \
+// "-- "BOARD_NAME" --\r\n" \
+// "-- Compiled: "__DATE__" "__TIME__" --"STRING_EOL
+// 
+// /** Reference voltage for AFEC,in mv. */
+// #define VOLT_REF        (3300)
+// 
+// /** The maximal digital value */
+// /** 2^12 - 1                  */
+// #define MAX_DIGITAL     (4095)
+// 
 /* Canal do sensor de temperatura */
-#define AFEC_CHANNEL_TEMP_SENSOR 11
-#define AFEC_CHANNEL_POT_SENSOR 8
+// #define AFEC_CHANNEL_TEMP_SENSOR 11
+// #define AFEC_CHANNEL_POT_SENSOR 8
 
 /** The conversion data is done flag */
-volatile bool g_is_conversion_done = false;
-volatile bool g1_is_conversion_done = false;
+// volatile bool g_is_conversion_done = false;
+// volatile bool g1_is_conversion_done = false;
+// 
+// /** The conversion data value */
+// volatile uint32_t g_ul_value = 0;
+// //Pot
+// volatile uint32_t pot_ul_value;
 
-/** The conversion data value */
-volatile uint32_t g_ul_value = 0;
-//Pot
-volatile uint32_t pot_ul_value;
 
+////////////////////////////////////////////////////////////////
+#define PIO_PWM_0 PIOA
+#define ID_PIO_PWM_0 ID_PIOA
+#define MASK_PIN_PWM_0 (1 << 0)
+
+#define BUT1_PIO		  PIOD
+#define BUT1_MASK		  (1u << 28u)
+
+#define BUT2_PIO		  PIOC
+#define BUT2_MASK		  (1u << 31)
+
+#define BUT3_PIO		  PIOA
+#define BUT3_MASK		  (1u << 19)
+
+
+/** PWM frequency in Hz */
+#define PWM_FREQUENCY      1000
+/** Period value of PWM output waveform */
+#define PERIOD_VALUE       100
+/** Initial duty cycle value */
+#define INIT_DUTY_VALUE    0
+
+/** PWM channel instance for LEDs */
+pwm_channel_t g_pwm_channel_led;
 
 /************************************************************************/
 /* RTOS hooks                                                           */
@@ -215,75 +240,107 @@ extern void vApplicationMallocFailedHook(void)
 /* init                                                                 */
 /************************************************************************/
 
+void PWM0_init(uint channel, uint duty){
+	/* Enable PWM peripheral clock */
+	pmc_enable_periph_clk(ID_PWM0);
 
-static void AFEC_pot_callback(void)
-{
-	pot_ul_value = afec_channel_get_value(AFEC0, AFEC_CHANNEL_POT_SENSOR);
-	g1_is_conversion_done = true;
-}
-static int32_t convert_adc_to_pot(int32_t ADC_value){
+	/* Disable PWM channels for LEDs */
+	pwm_channel_disable(PWM0, PIN_PWM_LED0_CHANNEL);
 
-  int32_t ul_vol;
-  int32_t ul_temp;
+	/* Set PWM clock A as PWM_FREQUENCY*PERIOD_VALUE (clock B is not used) */
+	pwm_clock_t clock_setting = {
+		.ul_clka = PWM_FREQUENCY * PERIOD_VALUE,
+		.ul_clkb = 0,
+		.ul_mck = sysclk_get_peripheral_hz()
+	};
+	
+	pwm_init(PWM0, &clock_setting);
 
-  /*
-   * converte bits -> tens?o (Volts)
-   */
-	ul_vol = ADC_value * VOLT_REF / (float) MAX_DIGITAL;
-
-  /*
-   * According to datasheet, The output voltage VT = 0.72V at 27C
-   * and the temperature slope dVT/dT = 2.33 mV/C
-   */
-  
-  return(ul_vol);
-}
-
-static void config_POT(void){
-/*************************************
-   * Ativa e configura AFEC
-   *************************************/
-  /* Ativa AFEC - 0 */
-	afec_enable(AFEC0);
-
-	/* struct de configuracao do AFEC */
-	struct afec_config afec_cfg;
-
-	/* Carrega parametros padrao */
-	afec_get_config_defaults(&afec_cfg);
-
-	/* Configura AFEC */
-	afec_init(AFEC0, &afec_cfg);
-
-	/* Configura trigger por software */
-	afec_set_trigger(AFEC0, AFEC_TRIG_SW);
-
-	/* configura call back */
-	afec_set_callback(AFEC0, AFEC_INTERRUPT_EOC_8,	AFEC_pot_callback, 1);
-
-	/*** Configuracao espec?fica do canal AFEC ***/
-	struct afec_ch_config afec_ch_cfg;
-	afec_ch_get_config_defaults(&afec_ch_cfg);
-	afec_ch_cfg.gain = AFEC_GAINVALUE_0;
-	afec_ch_set_config(AFEC0, AFEC_CHANNEL_POT_SENSOR, &afec_ch_cfg);
-
-	/*
-	* Calibracao:
-	* Because the internal ADC offset is 0x200, it should cancel it and shift
-	 down to 0.
-	 */
-	afec_channel_set_analog_offset(AFEC0, AFEC_CHANNEL_POT_SENSOR, 0x200);
-
-	/***  Configura sensor de temperatura ***/
-	//struct afec_temp_sensor_config afec_pot_sensor_cfg;
-
-	//afec_temp_sensor_get_config_defaults(&afec_pot_sensor_cfg);
-	//afec_temp_sensor_set_config(AFEC0, &afec_pot_sensor_cfg);
-
-	/* Selecina canal e inicializa convers?o */
-	afec_channel_enable(AFEC0, AFEC_CHANNEL_POT_SENSOR);
+	/* Initialize PWM channel for LED0 */
+	/* Period is left-aligned */
+	g_pwm_channel_led.alignment = PWM_ALIGN_CENTER;
+	/* Output waveform starts at a low level */
+	g_pwm_channel_led.polarity = PWM_HIGH;
+	/* Use PWM clock A as source clock */
+	g_pwm_channel_led.ul_prescaler = PWM_CMR_CPRE_CLKA;
+	/* Period value of output waveform */
+	g_pwm_channel_led.ul_period = PERIOD_VALUE;
+	/* Duty cycle value of output waveform */
+	g_pwm_channel_led.ul_duty = duty;
+	g_pwm_channel_led.channel = channel;
+	pwm_channel_init(PWM0, &g_pwm_channel_led);
+	
+	/* Enable PWM channels for LEDs */
+	pwm_channel_enable(PWM0, channel);
 }
 
+// static void AFEC_pot_callback(void)
+// {
+// 	pot_ul_value = afec_channel_get_value(AFEC0, AFEC_CHANNEL_POT_SENSOR);
+// 	g1_is_conversion_done = true;
+// }
+// static int32_t convert_adc_to_pot(int32_t ADC_value){
+// 
+//   int32_t ul_vol;
+//   int32_t ul_temp;
+// 
+//   /*
+//    * converte bits -> tens?o (Volts)
+//    */
+// 	ul_vol = ADC_value * VOLT_REF / (float) MAX_DIGITAL;
+// 
+//   /*
+//    * According to datasheet, The output voltage VT = 0.72V at 27C
+//    * and the temperature slope dVT/dT = 2.33 mV/C
+//    */
+//   
+//   return(ul_vol);
+//// 
+// static void config_POT(void){
+// /*************************************
+//    * Ativa e configura AFEC
+//    *************************************/
+//   /* Ativa AFEC - 0 */
+// 	afec_enable(AFEC0);
+// 
+// 	/* struct de configuracao do AFEC */
+// 	struct afec_config afec_cfg;
+// 
+// 	/* Carrega parametros padrao */
+// 	afec_get_config_defaults(&afec_cfg);
+// 
+// 	/* Configura AFEC */
+// 	afec_init(AFEC0, &afec_cfg);
+// 
+// 	/* Configura trigger por software */
+// 	afec_set_trigger(AFEC0, AFEC_TRIG_SW);
+// 
+// 	/* configura call back */
+// 	afec_set_callback(AFEC0, AFEC_INTERRUPT_EOC_8,	AFEC_pot_callback, 1);
+// 
+// 	/*** Configuracao espec?fica do canal AFEC ***/
+// 	struct afec_ch_config afec_ch_cfg;
+// 	afec_ch_get_config_defaults(&afec_ch_cfg);
+// 	afec_ch_cfg.gain = AFEC_GAINVALUE_0;
+// 	afec_ch_set_config(AFEC0, AFEC_CHANNEL_POT_SENSOR, &afec_ch_cfg);
+// 
+// 	/*
+// 	* Calibracao:
+// 	* Because the internal ADC offset is 0x200, it should cancel it and shift
+// 	 down to 0.
+// 	 */
+// 	afec_channel_set_analog_offset(AFEC0, AFEC_CHANNEL_POT_SENSOR, 0x200);
+// 
+// 	/***  Configura sensor de temperatura ***/
+// 	//struct afec_temp_sensor_config afec_pot_sensor_cfg;
+// 
+// 	//afec_temp_sensor_get_config_defaults(&afec_pot_sensor_cfg);
+// 	//afec_temp_sensor_set_config(AFEC0, &afec_pot_sensor_cfg);
+// 
+// 	/* Selecina canal e inicializa convers?o */
+// 	afec_channel_enable(AFEC0, AFEC_CHANNEL_POT_SENSOR);
+// }
+// 
 
 static void configure_lcd(void){
 	/* Initialize display parameter */
@@ -498,18 +555,78 @@ void task_mxt(void){
 	}
 }
 
+uint duty = 100;
+
+/** Semaforo a ser usado pela task led */
+SemaphoreHandle_t xSemaphore;
+
+/**
+ * callback do botao
+ * libera semaforo: xSemaphore
+ */
+void but_callback(void){
+	BaseType_t xHigherPriorityTaskWoken = pdFALSE;
+	printf("but_callback \n");
+	xSemaphoreGiveFromISR(xSemaphore, &xHigherPriorityTaskWoken);
+	printf("semafaro tx \n");
+}
+
+void io_init(void){
+	pmc_enable_periph_clk(ID_PIOA);
+	//pmc_enable_periph_clk(ID_PIOB);
+	pmc_enable_periph_clk(ID_PIOC);
+	pmc_enable_periph_clk(ID_PIOD);
+	
+	pio_configure(BUT3_PIO, PIO_INPUT,BUT3_MASK,PIO_DEBOUNCE|PIO_PULLUP);
+	pio_configure(BUT2_PIO, PIO_INPUT,BUT2_MASK,PIO_DEBOUNCE|PIO_PULLUP);
+	pio_configure(BUT1_PIO, PIO_INPUT,BUT1_MASK,PIO_DEBOUNCE|PIO_PULLUP);
+	
+	pio_handler_set(BUT1_PIO,ID_PIOD,BUT1_MASK,PIO_IT_FALL_EDGE, but_callback);
+	// Ativa interrupção no hardware
+	pio_enable_interrupt(PIOD, BUT1_MASK);
+
+	// Configura NVIC para receber interrupcoes do PIO do botao
+	// com prioridade 4 (quanto mais próximo de 0 maior)
+	NVIC_EnableIRQ(ID_PIOD);
+	NVIC_SetPriority(ID_PIOD, 4); // Prioridade 4
+}
+
+//void task_but(void){}
+
 void task_lcd(void){
   xQueueTouch = xQueueCreate( 10, sizeof( touchData ) );
 	configure_lcd();
   
+  
+  
+   /* We are using the semaphore for synchronisation so we create a binary
+        semaphore rather than a mutex.  We must make sure that the interrupt
+        does not attempt to use the semaphore before it is created! */
+	xSemaphore = xSemaphoreCreateBinary();
+
+        /* devemos iniciar a interrupcao no pino somente apos termos alocado
+           os recursos (no caso semaforo), nessa funcao inicializamos 
+           o botao e seu callback*/
+        io_init();
+		
+	if (xSemaphore == NULL)
+	printf("falha em criar o semaforo \n");
+
+  
   draw_screen();
   draw_button(0);
+  uint8_t stingLCD[256];
+  
+
+  sprintf(stingLCD,"%d",duty);
   
   font_draw_text(&digital52, "HH:MM", 5, SONECA_Y, 1);
   font_draw_text(&digital52, "15", THERM_X+THERM_W+5, THERM_Y, 1);
-  font_draw_text(&digital52, "100%", AIR_X+AIR_W+5, AIR_Y, 1);
+  font_draw_text(&digital52, stingLCD, AIR_X+AIR_W+5, AIR_Y, 1);
+  font_draw_text(&digital52, "%", AIR_X+AIR_W+80, AIR_Y, 1);
   
-  
+  pwm_channel_update_duty(PWM0, &g_pwm_channel_led, 100-duty);
+
   touchData touch;
     
   while (true) {  
@@ -517,8 +634,13 @@ void task_lcd(void){
        update_screen(touch.x, touch.y);
        printf("x:%d y:%d\n", touch.x, touch.y);
      }     
+	 if( xSemaphoreTake(xSemaphore, ( TickType_t ) 500) == pdTRUE ){
+		 
+		 duty-=10;
+	 }
   }	 
 }
+
 
 /************************************************************************/
 /* main                                                                 */
@@ -536,7 +658,11 @@ int main(void)
 
 	sysclk_init(); /* Initialize system clocks */
 	board_init();  /* Initialize board */
-	
+	pio_set_peripheral(PIO_PWM_0, PIO_PERIPH_A, MASK_PIN_PWM_0 );
+
+	PWM0_init(0, duty);
+
+
 	/* Initialize stdio on USART */
 	stdio_serial_init(USART_SERIAL_EXAMPLE, &usart_serial_options);
 		
@@ -549,6 +675,11 @@ int main(void)
   if (xTaskCreate(task_lcd, "lcd", TASK_LCD_STACK_SIZE, NULL, TASK_LCD_STACK_PRIORITY, NULL) != pdPASS) {
     printf("Failed to create test led task\r\n");
   }
+  
+// 	/* Create task to handler LCD */
+// 	if (xTaskCreate(task_but, "tbut", TASK_LCD_STACK_SIZE, NULL, TASK_LCD_STACK_PRIORITY, NULL) != pdPASS) {
+// 		printf("Failed to create test led task\r\n");
+// 	}
 
   /* Start the scheduler. */
   vTaskStartScheduler();
