@@ -92,17 +92,36 @@
 #include "conf_example.h"
 #include "conf_uart_serial.h"
 
+#include "tfont.h"
+#include "ar.h"
+#include "digital521.h"
+#include "soneca.h"
+#include "termometro.h"
+
 /************************************************************************/
 /* LCD + TOUCH                                                          */
 /************************************************************************/
 #define MAX_ENTRIES        3
 
 struct ili9488_opt_t g_ili9488_display_opt;
-const uint32_t BUTTON_W = 120;
-const uint32_t BUTTON_H = 150;
-const uint32_t BUTTON_BORDER = 2;
-const uint32_t BUTTON_X = ILI9488_LCD_WIDTH/2;
-const uint32_t BUTTON_Y = ILI9488_LCD_HEIGHT/2;
+
+const uint32_t SONECA_W = 69;
+const uint32_t SONECA_H = 71;
+const uint32_t SONECA_X = ILI9488_LCD_WIDTH-20-69;
+const uint32_t SONECA_Y = 20;
+
+const uint32_t BAR_Y = 350;
+const uint32_t BAR_THICC = 5;
+
+const uint32_t THERM_W = 54;
+const uint32_t THERM_H = 80;
+const uint32_t THERM_X = 1;
+const uint32_t THERM_Y = 360;
+
+const uint32_t AIR_W = 88;
+const uint32_t AIR_H = 71;
+const uint32_t AIR_X = 115;
+const uint32_t AIR_Y = 360;
 	
 /************************************************************************/
 /* RTOS                                                                  */
@@ -119,6 +138,33 @@ typedef struct {
 } touchData;
 
 QueueHandle_t xQueueTouch;
+
+/** Header printf */
+#define STRING_EOL    "\r"
+#define STRING_HEADER "-- AFEC Temperature Sensor Example --\r\n" \
+"-- "BOARD_NAME" --\r\n" \
+"-- Compiled: "__DATE__" "__TIME__" --"STRING_EOL
+
+/** Reference voltage for AFEC,in mv. */
+#define VOLT_REF        (3300)
+
+/** The maximal digital value */
+/** 2^12 - 1                  */
+#define MAX_DIGITAL     (4095)
+
+/* Canal do sensor de temperatura */
+#define AFEC_CHANNEL_TEMP_SENSOR 11
+#define AFEC_CHANNEL_POT_SENSOR 8
+
+/** The conversion data is done flag */
+volatile bool g_is_conversion_done = false;
+volatile bool g1_is_conversion_done = false;
+
+/** The conversion data value */
+volatile uint32_t g_ul_value = 0;
+//Pot
+volatile uint32_t pot_ul_value;
+
 
 /************************************************************************/
 /* RTOS hooks                                                           */
@@ -168,6 +214,75 @@ extern void vApplicationMallocFailedHook(void)
 /************************************************************************/
 /* init                                                                 */
 /************************************************************************/
+
+
+static void AFEC_pot_callback(void)
+{
+	pot_ul_value = afec_channel_get_value(AFEC0, AFEC_CHANNEL_POT_SENSOR);
+	g1_is_conversion_done = true;
+}
+static int32_t convert_adc_to_pot(int32_t ADC_value){
+
+  int32_t ul_vol;
+  int32_t ul_temp;
+
+  /*
+   * converte bits -> tens?o (Volts)
+   */
+	ul_vol = ADC_value * VOLT_REF / (float) MAX_DIGITAL;
+
+  /*
+   * According to datasheet, The output voltage VT = 0.72V at 27C
+   * and the temperature slope dVT/dT = 2.33 mV/C
+   */
+  
+  return(ul_vol);
+}
+
+static void config_POT(void){
+/*************************************
+   * Ativa e configura AFEC
+   *************************************/
+  /* Ativa AFEC - 0 */
+	afec_enable(AFEC0);
+
+	/* struct de configuracao do AFEC */
+	struct afec_config afec_cfg;
+
+	/* Carrega parametros padrao */
+	afec_get_config_defaults(&afec_cfg);
+
+	/* Configura AFEC */
+	afec_init(AFEC0, &afec_cfg);
+
+	/* Configura trigger por software */
+	afec_set_trigger(AFEC0, AFEC_TRIG_SW);
+
+	/* configura call back */
+	afec_set_callback(AFEC0, AFEC_INTERRUPT_EOC_8,	AFEC_pot_callback, 1);
+
+	/*** Configuracao espec?fica do canal AFEC ***/
+	struct afec_ch_config afec_ch_cfg;
+	afec_ch_get_config_defaults(&afec_ch_cfg);
+	afec_ch_cfg.gain = AFEC_GAINVALUE_0;
+	afec_ch_set_config(AFEC0, AFEC_CHANNEL_POT_SENSOR, &afec_ch_cfg);
+
+	/*
+	* Calibracao:
+	* Because the internal ADC offset is 0x200, it should cancel it and shift
+	 down to 0.
+	 */
+	afec_channel_set_analog_offset(AFEC0, AFEC_CHANNEL_POT_SENSOR, 0x200);
+
+	/***  Configura sensor de temperatura ***/
+	//struct afec_temp_sensor_config afec_pot_sensor_cfg;
+
+	//afec_temp_sensor_get_config_defaults(&afec_pot_sensor_cfg);
+	//afec_temp_sensor_set_config(AFEC0, &afec_pot_sensor_cfg);
+
+	/* Selecina canal e inicializa convers?o */
+	afec_channel_enable(AFEC0, AFEC_CHANNEL_POT_SENSOR);
+}
 
 
 static void configure_lcd(void){
@@ -285,18 +400,15 @@ void draw_screen(void) {
 
 void draw_button(uint32_t clicked) {
 	static uint32_t last_state = 255; // undefined
-	if(clicked == last_state) return;
 	
+	ili9488_draw_pixmap(SONECA_X,SONECA_Y,SONECA_W,SONECA_H,image_data_soneca);
 	ili9488_set_foreground_color(COLOR_CONVERT(COLOR_BLACK));
-	ili9488_draw_filled_rectangle(BUTTON_X-BUTTON_W/2, BUTTON_Y-BUTTON_H/2, BUTTON_X+BUTTON_W/2, BUTTON_Y+BUTTON_H/2);
-	if(clicked) {
-		ili9488_set_foreground_color(COLOR_CONVERT(COLOR_TOMATO));
-		ili9488_draw_filled_rectangle(BUTTON_X-BUTTON_W/2+BUTTON_BORDER, BUTTON_Y+BUTTON_BORDER, BUTTON_X+BUTTON_W/2-BUTTON_BORDER, BUTTON_Y+BUTTON_H/2-BUTTON_BORDER);
-	} else {
-		ili9488_set_foreground_color(COLOR_CONVERT(COLOR_GREEN));
-		ili9488_draw_filled_rectangle(BUTTON_X-BUTTON_W/2+BUTTON_BORDER, BUTTON_Y-BUTTON_H/2+BUTTON_BORDER, BUTTON_X+BUTTON_W/2-BUTTON_BORDER, BUTTON_Y-BUTTON_BORDER);
-	}
-	last_state = clicked;
+
+	ili9488_draw_filled_rectangle(0,BAR_Y ,ILI9488_LCD_WIDTH, BAR_Y+BAR_THICC);
+	
+	ili9488_draw_pixmap(THERM_X,THERM_Y,THERM_W,THERM_H,image_data_termometro);
+	
+	ili9488_draw_pixmap(AIR_X,AIR_Y,AIR_W,AIR_H,image_data_ar);
 }
 
 uint32_t convert_axis_system_x(uint32_t touch_y) {
@@ -311,14 +423,22 @@ uint32_t convert_axis_system_y(uint32_t touch_x) {
 	return ILI9488_LCD_HEIGHT*touch_x/4096;
 }
 
-void update_screen(uint32_t tx, uint32_t ty) {
-	if(tx >= BUTTON_X-BUTTON_W/2 && tx <= BUTTON_X + BUTTON_W/2) {
-		if(ty >= BUTTON_Y-BUTTON_H/2 && ty <= BUTTON_Y) {
-			draw_button(1);
-		} else if(ty > BUTTON_Y && ty < BUTTON_Y + BUTTON_H/2) {
-			draw_button(0);
+void font_draw_text(tFont *font, const char *text, int x, int y, int spacing) {
+	char *p = text;
+	while(*p != NULL) {
+		char letter = *p;
+		int letter_offset = letter - font->start_char;
+		if(letter <= font->end_char) {
+			tChar *current_char = font->chars + letter_offset;
+			ili9488_draw_pixmap(x, y, current_char->image->width, current_char->image->height, current_char->image->data);
+			x += current_char->image->width + spacing;
 		}
+		p++;
 	}
+}
+
+void update_screen(uint32_t tx, uint32_t ty) {
+	draw_button(0);
 }
 
 void mxt_handler(struct mxt_device *device, uint *x, uint *y)
@@ -384,6 +504,12 @@ void task_lcd(void){
   
   draw_screen();
   draw_button(0);
+  
+  font_draw_text(&digital52, "HH:MM", 5, SONECA_Y, 1);
+  font_draw_text(&digital52, "15", THERM_X+THERM_W+5, THERM_Y, 1);
+  font_draw_text(&digital52, "100%", AIR_X+AIR_W+5, AIR_Y, 1);
+  
+  
   touchData touch;
     
   while (true) {  
