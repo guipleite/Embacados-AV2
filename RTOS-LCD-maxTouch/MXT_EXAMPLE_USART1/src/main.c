@@ -633,7 +633,7 @@ void task_lcd(void){
     o botao e seu callback*/
   
 	
-	uint duty = 50; // dutty cycle inicial
+	uint duty = 30; // dutty cycle inicial
 	
 	PWM0_init(0, duty);
   
@@ -641,7 +641,6 @@ void task_lcd(void){
 	draw_button(0);
 	uint8_t stingLCD[56];
   
- 
 	sprintf(stingLCD,"%d",duty);
   
 	font_draw_text(&digital52, "HH:MM", 5, SONECA_Y, 1);
@@ -660,21 +659,25 @@ void task_lcd(void){
 		printf("x:%d y:%d\n", touch.x, touch.y);
 		}     
 		if( xSemaphoreTake(xSemaphore_M, ( TickType_t ) 500) == pdTRUE ){
-			duty-=10;
+			if(duty>0){
+				duty-=10;
+			}
 			sprintf(stingLCD,"%d",duty);
 			font_draw_text(&digital52, stingLCD, AIR_X+AIR_W+5, AIR_Y, 1);
 			font_draw_text(&digital52, "%", AIR_X+AIR_W+80, AIR_Y, 1);
 			
-			//pwm_channel_update_duty(PWM0, &g_pwm_channel_led, 100-duty);
+			pwm_channel_update_duty(PWM0, &g_pwm_channel_led, 100-duty);
 		}
 		
 		if( xSemaphoreTake(xSemaphore_P, ( TickType_t ) 500) == pdTRUE ){
+			if(duty<100){
 			duty+=10;
+			}
 			sprintf(stingLCD,"%d",duty);
 			font_draw_text(&digital52, stingLCD, AIR_X+AIR_W+5, AIR_Y, 1);
 			font_draw_text(&digital52, "%", AIR_X+AIR_W+80, AIR_Y, 1);
 			
-			//pwm_channel_update_duty(PWM0, &g_pwm_channel_led, 100-duty);
+			pwm_channel_update_duty(PWM0, &g_pwm_channel_led, 100-duty);
 		}
  }	 
 }
