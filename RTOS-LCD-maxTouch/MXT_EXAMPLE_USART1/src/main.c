@@ -1,89 +1,3 @@
-/**
- * \file
- *
- * \brief Example of usage of the maXTouch component with USART
- *
- * This example shows how to receive touch data from a maXTouch device
- * using the maXTouch component, and display them in a terminal window by using
- * the USART driver.
- *
- * Copyright (c) 2014-2018 Microchip Technology Inc. and its subsidiaries.
- *
- * \asf_license_start
- *
- * \page License
- *
- * Subject to your compliance with these terms, you may use Microchip
- * software and any derivatives exclusively with Microchip products.
- * It is your responsibility to comply with third party license terms applicable
- * to your use of third party software (including open source software) that
- * may accompany Microchip software.
- *
- * THIS SOFTWARE IS SUPPLIED BY MICROCHIP "AS IS". NO WARRANTIES,
- * WHETHER EXPRESS, IMPLIED OR STATUTORY, APPLY TO THIS SOFTWARE,
- * INCLUDING ANY IMPLIED WARRANTIES OF NON-INFRINGEMENT, MERCHANTABILITY,
- * AND FITNESS FOR A PARTICULAR PURPOSE. IN NO EVENT WILL MICROCHIP BE
- * LIABLE FOR ANY INDIRECT, SPECIAL, PUNITIVE, INCIDENTAL OR CONSEQUENTIAL
- * LOSS, DAMAGE, COST OR EXPENSE OF ANY KIND WHATSOEVER RELATED TO THE
- * SOFTWARE, HOWEVER CAUSED, EVEN IF MICROCHIP HAS BEEN ADVISED OF THE
- * POSSIBILITY OR THE DAMAGES ARE FORESEEABLE.  TO THE FULLEST EXTENT
- * ALLOWED BY LAW, MICROCHIP'S TOTAL LIABILITY ON ALL CLAIMS IN ANY WAY
- * RELATED TO THIS SOFTWARE WILL NOT EXCEED THE AMOUNT OF FEES, IF ANY,
- * THAT YOU HAVE PAID DIRECTLY TO MICROCHIP FOR THIS SOFTWARE.
- *
- * \asf_license_stop
- *
- */
-
-/**
- * \mainpage
- *
- * \section intro Introduction
- * This simple example reads data from the maXTouch device and sends it over
- * USART as ASCII formatted text.
- *
- * \section files Main files:
- * - example_usart.c: maXTouch component USART example file
- * - conf_mxt.h: configuration of the maXTouch component
- * - conf_board.h: configuration of board
- * - conf_clock.h: configuration of system clock
- * - conf_example.h: configuration of example
- * - conf_sleepmgr.h: configuration of sleep manager
- * - conf_twim.h: configuration of TWI driver
- * - conf_usart_serial.h: configuration of USART driver
- *
- * \section apiinfo maXTouch low level component API
- * The maXTouch component API can be found \ref mxt_group "here".
- *
- * \section deviceinfo Device Info
- * All UC3 and Xmega devices with a TWI module can be used with this component
- *
- * \section exampledescription Description of the example
- * This example will read data from the connected maXTouch explained board
- * over TWI. This data is then processed and sent over a USART data line
- * to the board controller. The board controller will create a USB CDC class
- * object on the host computer and repeat the incoming USART data from the
- * main controller to the host. On the host this object should appear as a
- * serial port object (COMx on windows, /dev/ttyxxx on your chosen Linux flavour).
- *
- * Connect a terminal application to the serial port object with the settings
- * Baud: 57600
- * Data bits: 8-bit
- * Stop bits: 1 bit
- * Parity: None
- *
- * \section compinfo Compilation Info
- * This software was written for the GNU GCC and IAR for AVR.
- * Other compilers may or may not work.
- *
- * \section contactinfo Contact Information
- * For further information, visit
- * <A href="http://www.atmel.com/">Atmel</A>.\n
- */
-/*
- * Support and FAQ: visit <a href="https://www.microchip.com/support/">Microchip Support</a>
- */
-
 #include <asf.h>
 #include <stdlib.h>
 #include <stdio.h>
@@ -139,38 +53,29 @@ typedef struct {
 
 QueueHandle_t xQueueTouch;
 
-// /** Header printf */
-// #define STRING_EOL    "\r"
-// #define STRING_HEADER "-- AFEC Temperature Sensor Example --\r\n" \
-// "-- "BOARD_NAME" --\r\n" \
-// "-- Compiled: "__DATE__" "__TIME__" --"STRING_EOL
-// 
-// /** Reference voltage for AFEC,in mv. */
-// #define VOLT_REF        (3300)
-// 
-// /** The maximal digital value */
-// /** 2^12 - 1                  */
-// #define MAX_DIGITAL     (4095)
+//AFEC
+#define TEMP_SENSOR 0 //  PIO D PINO 30
+
+/** Reference voltage for AFEC,in mv. */
+#define VOLT_REF        (3300)
+
+/** The maximal digital value */
+/** 2^12 - 1                  */
+#define MAX_DIGITAL     (4095)
 // 
 /* Canal do sensor de temperatura */
 // #define AFEC_CHANNEL_TEMP_SENSOR 11
 // #define AFEC_CHANNEL_POT_SENSOR 8
 
-/** The conversion data is done flag */
-// volatile bool g_is_conversion_done = false;
-// volatile bool g1_is_conversion_done = false;
-// 
-// /** The conversion data value */
-// volatile uint32_t g_ul_value = 0;
-// //Pot
-// volatile uint32_t pot_ul_value;
-
+/** The conversion data value */
+char g_ul_value[16];
+//Pot
+volatile uint32_t pot_ul_value;
 
 ////////////////////////////////////////////////////////////////
 #define PIO_PWM_0 PIOA
 #define ID_PIO_PWM_0 ID_PIOA
 #define MASK_PIN_PWM_0 (1 << 0)
-
 
 //butao 1 oled
 #define EBUT1_PIO PIOD // EXT 9 PD28
@@ -285,73 +190,71 @@ void PWM0_init(uint channel, uint duty){
 	pwm_channel_enable(PWM0, channel);
 }
 
-// static void AFEC_pot_callback(void)
-// {
-// 	pot_ul_value = afec_channel_get_value(AFEC0, AFEC_CHANNEL_POT_SENSOR);
-// 	g1_is_conversion_done = true;
-// }
-// static int32_t convert_adc_to_pot(int32_t ADC_value){
-// 
-//   int32_t ul_vol;
-//   int32_t ul_temp;
-// 
-//   /*
-//    * converte bits -> tens?o (Volts)
-//    */
-// 	ul_vol = ADC_value * VOLT_REF / (float) MAX_DIGITAL;
-// 
-//   /*
-//    * According to datasheet, The output voltage VT = 0.72V at 27C
-//    * and the temperature slope dVT/dT = 2.33 mV/C
-//    */
-//   
-//   return(ul_vol);
-//// 
-// static void config_POT(void){
-// /*************************************
-//    * Ativa e configura AFEC
-//    *************************************/
-//   /* Ativa AFEC - 0 */
-// 	afec_enable(AFEC0);
-// 
-// 	/* struct de configuracao do AFEC */
-// 	struct afec_config afec_cfg;
-// 
-// 	/* Carrega parametros padrao */
-// 	afec_get_config_defaults(&afec_cfg);
-// 
-// 	/* Configura AFEC */
-// 	afec_init(AFEC0, &afec_cfg);
-// 
-// 	/* Configura trigger por software */
-// 	afec_set_trigger(AFEC0, AFEC_TRIG_SW);
-// 
-// 	/* configura call back */
-// 	afec_set_callback(AFEC0, AFEC_INTERRUPT_EOC_8,	AFEC_pot_callback, 1);
-// 
-// 	/*** Configuracao espec?fica do canal AFEC ***/
-// 	struct afec_ch_config afec_ch_cfg;
-// 	afec_ch_get_config_defaults(&afec_ch_cfg);
-// 	afec_ch_cfg.gain = AFEC_GAINVALUE_0;
-// 	afec_ch_set_config(AFEC0, AFEC_CHANNEL_POT_SENSOR, &afec_ch_cfg);
-// 
-// 	/*
-// 	* Calibracao:
-// 	* Because the internal ADC offset is 0x200, it should cancel it and shift
-// 	 down to 0.
-// 	 */
-// 	afec_channel_set_analog_offset(AFEC0, AFEC_CHANNEL_POT_SENSOR, 0x200);
-// 
-// 	/***  Configura sensor de temperatura ***/
-// 	//struct afec_temp_sensor_config afec_pot_sensor_cfg;
-// 
-// 	//afec_temp_sensor_get_config_defaults(&afec_pot_sensor_cfg);
-// 	//afec_temp_sensor_set_config(AFEC0, &afec_pot_sensor_cfg);
-// 
-// 	/* Selecina canal e inicializa convers?o */
-// 	afec_channel_enable(AFEC0, AFEC_CHANNEL_POT_SENSOR);
-// }
-// 
+static void AFEC_pot_callback(void){
+	pot_ul_value = afec_channel_get_value(AFEC0, TEMP_SENSOR);
+	afec_start_software_conversion(AFEC0);
+	pot_ul_value = afec_channel_get_value(AFEC0, TEMP_SENSOR);
+}
+
+static int32_t convert_adc_to_pot(int32_t ADC_value){
+  int32_t ul_vol;
+  int32_t ul_temp;
+
+  /*
+   * converte bits -> tens?o (Volts)
+   */
+	ul_vol = ADC_value * VOLT_REF / (float) MAX_DIGITAL;
+
+  /*
+   * According to datasheet, The output voltage VT = 0.72V at 27C
+   * and the temperature slope dVT/dT = 2.33 mV/C
+   */ 
+  return(ul_vol);
+}
+static void config_POT(void){
+/*************************************
+   * Ativa e configura AFEC
+   *************************************/
+  /* Ativa AFEC - 0 */
+	afec_enable(AFEC0);
+
+	/* struct de configuracao do AFEC */
+	struct afec_config afec_cfg;
+
+	/* Carrega parametros padrao */
+	afec_get_config_defaults(&afec_cfg);
+
+	/* Configura AFEC */
+	afec_init(AFEC0, &afec_cfg);
+
+	/* Configura trigger por software */
+	afec_set_trigger(AFEC0, AFEC_TRIG_SW);
+
+	/* configura call back */
+	afec_set_callback(AFEC0, AFEC_INTERRUPT_EOC_8,	AFEC_pot_callback, 1);
+
+	/*** Configuracao espec?fica do canal AFEC ***/
+	struct afec_ch_config afec_ch_cfg;
+	afec_ch_get_config_defaults(&afec_ch_cfg);
+	afec_ch_cfg.gain = AFEC_GAINVALUE_0;
+	afec_ch_set_config(AFEC0, TEMP_SENSOR, &afec_ch_cfg);
+
+	/*
+	* Calibracao:
+	* Because the internal ADC offset is 0x200, it should cancel it and shift
+	 down to 0.
+	 */
+	afec_channel_set_analog_offset(AFEC0, TEMP_SENSOR, 0x200);
+
+	/***  Configura sensor de temperatura ***/
+	//struct afec_temp_sensor_config afec_pot_sensor_cfg;
+
+	//afec_temp_sensor_get_config_defaults(&afec_pot_sensor_cfg);
+	//afec_temp_sensor_set_config(AFEC0, &afec_pot_sensor_cfg);
+
+	/* Selecina canal e inicializa convers?o */
+	afec_channel_enable(AFEC0, TEMP_SENSOR);
+}
 
 static void configure_lcd(void){
 	/* Initialize display parameter */
@@ -622,9 +525,9 @@ void task_lcd(void){
 	xQueueTouch = xQueueCreate( 10, sizeof( touchData ) );
 	configure_lcd();
   
-   /* We are using the semaphore for synchronisation so we create a binary
-   semaphore rather than a mutex.  We must make sure that the interrupt
-   does not attempt to use the semaphore before it is created! */
+	/* We are using the semaphore for synchronisation so we create a binary
+	semaphore rather than a mutex.  We must make sure that the interrupt
+	does not attempt to use the semaphore before it is created! */
 	xSemaphore_P = xSemaphoreCreateBinary();
 	xSemaphore_M = xSemaphoreCreateBinary();
 
@@ -650,7 +553,7 @@ void task_lcd(void){
   
 	pwm_channel_update_duty(PWM0, &g_pwm_channel_led, 100-duty);
 
-  io_init();
+	io_init();
 	touchData touch;
     
 	while (true) {  
@@ -663,6 +566,10 @@ void task_lcd(void){
 				duty-=10;
 			}
 			sprintf(stingLCD,"%d",duty);
+			
+			ili9488_set_foreground_color(COLOR_CONVERT(COLOR_WHITE));
+			ili9488_draw_filled_rectangle(AIR_X+AIR_W+50,AIR_Y,AIR_X+AIR_W+79,AIR_Y+50);
+			
 			font_draw_text(&digital52, stingLCD, AIR_X+AIR_W+5, AIR_Y, 1);
 			font_draw_text(&digital52, "%", AIR_X+AIR_W+80, AIR_Y, 1);
 			
@@ -671,7 +578,7 @@ void task_lcd(void){
 		
 		if( xSemaphoreTake(xSemaphore_P, ( TickType_t ) 500) == pdTRUE ){
 			if(duty<100){
-			duty+=10;
+				duty+=10;
 			}
 			sprintf(stingLCD,"%d",duty);
 			font_draw_text(&digital52, stingLCD, AIR_X+AIR_W+5, AIR_Y, 1);
@@ -679,7 +586,7 @@ void task_lcd(void){
 			
 			pwm_channel_update_duty(PWM0, &g_pwm_channel_led, 100-duty);
 		}
- }	 
+	}	 
 }
 
 
