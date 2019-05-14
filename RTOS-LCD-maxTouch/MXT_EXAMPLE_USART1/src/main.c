@@ -183,7 +183,7 @@ QueueHandle_t xQueueTouch;
 #define EBUT2_PIO_IDX 19u
 #define EBUT2_PIO_IDX_MASK (1u << EBUT2_PIO_IDX)
 //butao 3 oled
-#define EBUT3_PIO PIOC // la EXT 3 PC31
+#define EBUT3_PIO PIOC // EXT 3 PC31
 #define EBUT3_PIO_ID 12 // piod ID
 #define EBUT3_PIO_IDX 31u
 #define EBUT3_PIO_IDX_MASK (1u << EBUT3_PIO_IDX)
@@ -570,45 +570,25 @@ void task_mxt(void){
  * callback do botao
  * libera semaforo: xSemaphore
  */
+
 void but_callback_p(void){
 	BaseType_t xHigherPriorityTaskWoken = pdFALSE;
-	//printf("but_callback \n");
 	xSemaphoreGiveFromISR(xSemaphore_P, &xHigherPriorityTaskWoken);
-	//printf("semafaro tx \n");
 }
+
 void but_callback_m(void){
 	BaseType_t xHigherPriorityTaskWoken = pdFALSE;
-	//printf("but_callback \n");
 	xSemaphoreGiveFromISR(xSemaphore_M, &xHigherPriorityTaskWoken);
-	//printf("semafaro tx \n");
 }
 
 void io_init(void){
 	// configura botoes do oled
 	pmc_enable_periph_clk(EBUT1_PIO_ID);
 	pmc_enable_periph_clk(EBUT2_PIO_ID);
-	pmc_enable_periph_clk(EBUT3_PIO_ID);
+	
 	// configura botoes do oled como input
-	pio_set_input(EBUT1_PIO,EBUT1_PIO_IDX_MASK,PIO_DEFAULT);
-	pio_pull_up(EBUT1_PIO,EBUT1_PIO_IDX_MASK,PIO_PULLUP);
-	pio_set_input(EBUT2_PIO,EBUT2_PIO_IDX_MASK,PIO_DEFAULT);
-	pio_pull_up(EBUT2_PIO,EBUT2_PIO_IDX_MASK,PIO_PULLUP);
-	pio_set_input(EBUT3_PIO,EBUT3_PIO_IDX_MASK,PIO_DEFAULT);
-	pio_pull_up(EBUT3_PIO,EBUT3_PIO_IDX_MASK,PIO_PULLUP);
-	
-	// Ativa interrup??o
-	pio_enable_interrupt(EBUT1_PIO, EBUT1_PIO_IDX_MASK);
-	pio_enable_interrupt(EBUT2_PIO, EBUT2_PIO_IDX_MASK);
-	pio_enable_interrupt(EBUT3_PIO, EBUT3_PIO_IDX_MASK);
-
-	// Configura NVIC para receber interrupcoes do PIO do botao
-	
-	NVIC_EnableIRQ(EBUT1_PIO_ID);
-	NVIC_SetPriority(EBUT1_PIO_ID, 0); // Prioridade 4
-	NVIC_EnableIRQ(EBUT2_PIO_ID);
-	NVIC_SetPriority(EBUT2_PIO_ID, 0); // Prioridade 4
-	NVIC_EnableIRQ(EBUT3_PIO_ID);
-	NVIC_SetPriority(EBUT3_PIO_ID, 0); // Prioridade 4
+	pio_configure(EBUT1_PIO_ID, PIO_INPUT,EBUT1_PIO_IDX_MASK,PIO_DEBOUNCE|PIO_PULLUP);
+	pio_configure(EBUT2_PIO_ID, PIO_INPUT,EBUT2_PIO_IDX_MASK,PIO_DEBOUNCE|PIO_PULLUP);
 	
 	// Configura interrup??o no pino referente ao botao e associa
 	// fun??o de callback caso uma interrup??o for gerada
@@ -623,14 +603,20 @@ void io_init(void){
 	EBUT2_PIO_IDX_MASK,
 	PIO_IT_FALL_EDGE,
 	but_callback_m);
-// 	pio_handler_set(EBUT3_PIO,
-// 	EBUT3_PIO_ID,
-// 	EBUT3_PIO_IDX_MASK,
-// 	PIO_IT_FALL_EDGE,
-// 	but_stop_callback);
+	
+	// Ativa interrup??o
+	pio_enable_interrupt(EBUT1_PIO, EBUT1_PIO_IDX_MASK);
+	pio_enable_interrupt(EBUT2_PIO, EBUT2_PIO_IDX_MASK);
+
+	// Configura NVIC para receber interrupcoes do PIO do botao
+
+	NVIC_EnableIRQ(EBUT1_PIO_ID);
+	NVIC_SetPriority(EBUT1_PIO_ID, 5); // Prioridade 4
+	NVIC_EnableIRQ(EBUT2_PIO_ID);
+	NVIC_SetPriority(EBUT2_PIO_ID, 5); // Prioridade 4
 }
 
-void task_but(void){}
+//void task_but(void){}
 
 void task_lcd(void){
 	xQueueTouch = xQueueCreate( 10, sizeof( touchData ) );
@@ -645,9 +631,9 @@ void task_lcd(void){
     /* devemos iniciar a interrupcao no pino somente apos termos alocado
     os recursos (no caso semaforo), nessa funcao inicializamos 
     o botao e seu callback*/
-    io_init();
+  
 	
-	uint duty = 10; // dutty cycle inicial
+	uint duty = 50; // dutty cycle inicial
 	
 	PWM0_init(0, duty);
   
@@ -655,7 +641,7 @@ void task_lcd(void){
 	draw_button(0);
 	uint8_t stingLCD[56];
   
-
+ 
 	sprintf(stingLCD,"%d",duty);
   
 	font_draw_text(&digital52, "HH:MM", 5, SONECA_Y, 1);
@@ -665,6 +651,7 @@ void task_lcd(void){
   
 	pwm_channel_update_duty(PWM0, &g_pwm_channel_led, 100-duty);
 
+  io_init();
 	touchData touch;
     
 	while (true) {  
@@ -672,22 +659,22 @@ void task_lcd(void){
 		update_screen(touch.x, touch.y);
 		printf("x:%d y:%d\n", touch.x, touch.y);
 		}     
-		if( xSemaphoreTake(xSemaphore_M, ( TickType_t ) 200/portTICK_PERIOD_MS) == pdTRUE ){
+		if( xSemaphoreTake(xSemaphore_M, ( TickType_t ) 500) == pdTRUE ){
 			duty-=10;
 			sprintf(stingLCD,"%d",duty);
 			font_draw_text(&digital52, stingLCD, AIR_X+AIR_W+5, AIR_Y, 1);
 			font_draw_text(&digital52, "%", AIR_X+AIR_W+80, AIR_Y, 1);
 			
-			pwm_channel_update_duty(PWM0, &g_pwm_channel_led, 100-duty);
+			//pwm_channel_update_duty(PWM0, &g_pwm_channel_led, 100-duty);
 		}
 		
-		if( xSemaphoreTake(xSemaphore_P, ( TickType_t ) 200/portTICK_PERIOD_MS) == pdTRUE ){
+		if( xSemaphoreTake(xSemaphore_P, ( TickType_t ) 500) == pdTRUE ){
 			duty+=10;
 			sprintf(stingLCD,"%d",duty);
 			font_draw_text(&digital52, stingLCD, AIR_X+AIR_W+5, AIR_Y, 1);
 			font_draw_text(&digital52, "%", AIR_X+AIR_W+80, AIR_Y, 1);
 			
-			pwm_channel_update_duty(PWM0, &g_pwm_channel_led, 100-duty);
+			//pwm_channel_update_duty(PWM0, &g_pwm_channel_led, 100-duty);
 		}
  }	 
 }
