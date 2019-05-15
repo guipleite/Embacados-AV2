@@ -28,13 +28,13 @@ const uint32_t BAR_Y = 350;
 const uint32_t BAR_THICC = 5;
 
 const uint32_t THERM_W = 54;
-const uint32_t THERM_H = 80;
+const uint32_t THERM_H = 81;
 const uint32_t THERM_X = 1;
 const uint32_t THERM_Y = 360;
 
 const uint32_t AIR_W = 88;
 const uint32_t AIR_H = 71;
-const uint32_t AIR_X = 115;
+const uint32_t AIR_X = 125;
 const uint32_t AIR_Y = 360;
 	
 /************************************************************************/
@@ -53,8 +53,12 @@ typedef struct {
 
 QueueHandle_t xQueueTouch;
 
-//AFEC
+/* Canal do sensor de temperatura */
+// #define AFEC_CHANNEL_TEMP_SENSOR 11
+// #define AFEC_CHANNEL_POT_SENSOR 8
+
 #define TEMP_SENSOR 0 //  PIO D PINO 30
+
 
 /** Reference voltage for AFEC,in mv. */
 #define VOLT_REF        (3300)
@@ -63,14 +67,15 @@ QueueHandle_t xQueueTouch;
 /** 2^12 - 1                  */
 #define MAX_DIGITAL     (4095)
 // 
-/* Canal do sensor de temperatura */
-// #define AFEC_CHANNEL_TEMP_SENSOR 11
-// #define AFEC_CHANNEL_POT_SENSOR 8
+
 
 /** The conversion data value */
-char g_ul_value[16];
+uint  g_ul_value;
 //Pot
 volatile uint32_t pot_ul_value;
+
+SemaphoreHandle_t xSemaphore_TEMP; // Semaforo le temperatura
+
 
 ////////////////////////////////////////////////////////////////
 #define PIO_PWM_0 PIOA
@@ -191,26 +196,10 @@ void PWM0_init(uint channel, uint duty){
 }
 
 static void AFEC_pot_callback(void){
-	pot_ul_value = afec_channel_get_value(AFEC0, TEMP_SENSOR);
-	afec_start_software_conversion(AFEC0);
-	pot_ul_value = afec_channel_get_value(AFEC0, TEMP_SENSOR);
+	g_ul_value = afec_channel_get_value(AFEC0, TEMP_SENSOR);
+	xSemaphoreGiveFromISR(xSemaphore_TEMP, NULL);
 }
 
-static int32_t convert_adc_to_pot(int32_t ADC_value){
-  int32_t ul_vol;
-  int32_t ul_temp;
-
-  /*
-   * converte bits -> tens?o (Volts)
-   */
-	ul_vol = ADC_value * VOLT_REF / (float) MAX_DIGITAL;
-
-  /*
-   * According to datasheet, The output voltage VT = 0.72V at 27C
-   * and the temperature slope dVT/dT = 2.33 mV/C
-   */ 
-  return(ul_vol);
-}
 static void config_POT(void){
 /*************************************
    * Ativa e configura AFEC
@@ -231,7 +220,7 @@ static void config_POT(void){
 	afec_set_trigger(AFEC0, AFEC_TRIG_SW);
 
 	/* configura call back */
-	afec_set_callback(AFEC0, AFEC_INTERRUPT_EOC_8,	AFEC_pot_callback, 1);
+	afec_set_callback(AFEC0, AFEC_INTERRUPT_EOC_0,	AFEC_pot_callback, 5);
 
 	/*** Configuracao espec?fica do canal AFEC ***/
 	struct afec_ch_config afec_ch_cfg;
@@ -247,10 +236,10 @@ static void config_POT(void){
 	afec_channel_set_analog_offset(AFEC0, TEMP_SENSOR, 0x200);
 
 	/***  Configura sensor de temperatura ***/
-	//struct afec_temp_sensor_config afec_pot_sensor_cfg;
+	struct afec_temp_sensor_config afec_pot_sensor_cfg;
 
-	//afec_temp_sensor_get_config_defaults(&afec_pot_sensor_cfg);
-	//afec_temp_sensor_set_config(AFEC0, &afec_pot_sensor_cfg);
+	afec_temp_sensor_get_config_defaults(&afec_pot_sensor_cfg);
+	afec_temp_sensor_set_config(AFEC0, &afec_pot_sensor_cfg);
 
 	/* Selecina canal e inicializa convers?o */
 	afec_channel_enable(AFEC0, TEMP_SENSOR);
@@ -534,7 +523,8 @@ void task_lcd(void){
     /* devemos iniciar a interrupcao no pino somente apos termos alocado
     os recursos (no caso semaforo), nessa funcao inicializamos 
     o botao e seu callback*/
-  
+	io_init();
+
 	
 	uint duty = 30; // dutty cycle inicial
 	
@@ -547,13 +537,12 @@ void task_lcd(void){
 	sprintf(stingLCD,"%d",duty);
   
 	font_draw_text(&digital52, "HH:MM", 5, SONECA_Y, 1);
-	font_draw_text(&digital52, "15", THERM_X+THERM_W+2, THERM_Y, 1);
+	//font_draw_text(&digital52, "15", THERM_X+THERM_W+2, THERM_Y, 1);
 	font_draw_text(&digital52, stingLCD, AIR_X+AIR_W+5, AIR_Y, 1);
 	font_draw_text(&digital52, "%", AIR_X+AIR_W+80, AIR_Y, 1);
   
 	pwm_channel_update_duty(PWM0, &g_pwm_channel_led, 100-duty);
 
-	io_init();
 	touchData touch;
     
 	while (true) {  
@@ -561,7 +550,7 @@ void task_lcd(void){
 		update_screen(touch.x, touch.y);
 		printf("x:%d y:%d\n", touch.x, touch.y);
 		}     
-		if( xSemaphoreTake(xSemaphore_M, ( TickType_t ) 500) == pdTRUE ){
+		if( xSemaphoreTake(xSemaphore_M, ( TickType_t ) 500) == pdTRUE ){ // Checa se o botao de diminuir a potenica foi precionado
 			if(duty>0){
 				duty-=10;
 			}
@@ -576,7 +565,7 @@ void task_lcd(void){
 			pwm_channel_update_duty(PWM0, &g_pwm_channel_led, 100-duty);
 		}
 		
-		if( xSemaphoreTake(xSemaphore_P, ( TickType_t ) 500) == pdTRUE ){
+		if( xSemaphoreTake(xSemaphore_P, ( TickType_t ) 500) == pdTRUE ){ // Checa se o botao de aumenter a potenica foi precionado
 			if(duty<100){
 				duty+=10;
 			}
@@ -586,7 +575,38 @@ void task_lcd(void){
 			
 			pwm_channel_update_duty(PWM0, &g_pwm_channel_led, 100-duty);
 		}
+		
+		 if ( xSemaphoreTake(xSemaphore_TEMP, ( TickType_t ) 500) == pdTRUE ){ // Checa se os dados da temperatura estao prontos 
+			 g_ul_value = afec_channel_get_value(AFEC0, TEMP_SENSOR);
+			 int temp = 100*g_ul_value/4095;
+			 sprintf(stingLCD,"%d",temp);
+			 ili9488_set_foreground_color(COLOR_CONVERT(COLOR_WHITE));
+			 ili9488_draw_filled_rectangle(THERM_X+THERM_W-5,THERM_Y,AIR_X-1,THERM_Y+42);
+			 font_draw_text(&digital52,stingLCD , THERM_X+THERM_W-3, THERM_Y, 1);
+		 }
 	}	 
+}
+
+void task_read_temp(void){
+	/* We are using the semaphore for synchronisation so we create a binary
+	semaphore rather than a mutex.  We must make sure that the interrupt
+	does not attempt to use the semaphore before it is created! */
+	xSemaphore_TEMP = xSemaphoreCreateBinary();
+	
+	/* devemos iniciar a interrupcao no pino somente apos termos alocado
+    os recursos (no caso semaforo), nessa funcao inicializamos 
+    o botao e seu callback*/
+	config_POT();
+
+	/* Block for 4000ms. */
+	int time_in_s  = 4; // segundos
+	const TickType_t xDelay = time_in_s*1000 / portTICK_PERIOD_MS; // Converte ticks do CORE para ms
+	
+	while(true){
+		afec_start_software_conversion(AFEC0); // Inicia a conversao para int
+		
+		vTaskDelay(xDelay); // delay de 4 segundos
+	}
 }
 
 
@@ -611,23 +631,23 @@ int main(void)
 	/* Initialize stdio on USART */
 	stdio_serial_init(USART_SERIAL_EXAMPLE, &usart_serial_options);
 		
-  /* Create task to handler touch */
-  if (xTaskCreate(task_mxt, "mxt", TASK_MXT_STACK_SIZE, NULL, TASK_MXT_STACK_PRIORITY, NULL) != pdPASS) {
-    printf("Failed to create test led task\r\n");
-  }
+	/* Create task to handler touch */
+	if (xTaskCreate(task_mxt, "mxt", TASK_MXT_STACK_SIZE, NULL, TASK_MXT_STACK_PRIORITY, NULL) != pdPASS) {
+		printf("Failed to create test led task\r\n");
+	}
   
-  /* Create task to handler LCD */
-  if (xTaskCreate(task_lcd, "lcd", TASK_LCD_STACK_SIZE, NULL, TASK_LCD_STACK_PRIORITY, NULL) != pdPASS) {
-    printf("Failed to create test led task\r\n");
-  }
+	/* Create task to handler LCD */
+	if (xTaskCreate(task_lcd, "lcd", TASK_LCD_STACK_SIZE, NULL, TASK_LCD_STACK_PRIORITY, NULL) != pdPASS) {
+		printf("Failed to create test led task\r\n");
+	}
   
-// 	/* Create task to handler LCD */
-// 	if (xTaskCreate(task_but, "tbut", TASK_LCD_STACK_SIZE, NULL, TASK_LCD_STACK_PRIORITY, NULL) != pdPASS) {
-// 		printf("Failed to create test led task\r\n");
-// 	}
+	/* Create task to handlee temp reading */
+	if (xTaskCreate(task_read_temp, "temp_read_task", TASK_LCD_STACK_SIZE, NULL, TASK_LCD_STACK_PRIORITY, NULL) != pdPASS) {
+		printf("Failed to create test pot task\r\n");
+	}
 
-  /* Start the scheduler. */
-  vTaskStartScheduler();
+	/* Start the scheduler. */
+	vTaskStartScheduler();
 
   while(1){
 
