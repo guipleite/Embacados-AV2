@@ -740,10 +740,10 @@ int main(void)
 	if (xTaskCreate(task_update_clock, "temp_read_task", TASK_LCD_STACK_SIZE, NULL, TASK_LCD_STACK_PRIORITY, NULL) != pdPASS) {
 		printf("Failed to create test pot task\r\n");
 	}
-	/* Create task to snooze */
-	if (xTaskCreate(task_snooze, "temp_read_task", TASK_LCD_STACK_SIZE, NULL, TASK_LCD_STACK_PRIORITY, NULL) != pdPASS) {
-		printf("Failed to create test pot task\r\n");
-	}
+// 	/* Create task to snooze */
+// 	if (xTaskCreate(task_snooze, "temp_read_task", TASK_LCD_STACK_SIZE, NULL, TASK_LCD_STACK_PRIORITY, NULL) != pdPASS) {
+// 		printf("Failed to create test pot task\r\n");
+// 	}
 
 
 	/* Start the scheduler. */
