@@ -44,10 +44,11 @@ const uint32_t AIR_Y = 360;
 #define HOUR        8
 #define MINUTE      15
 #define SECOND      24
+
 uint32_t hour, minu, seg;
 
-
-
+SemaphoreHandle_t	xSemaphore_SNO;
+SemaphoreHandle_t	xSemaphore_SNO_DONE;
 	
 /************************************************************************/
 /* RTOS                                                                  */
@@ -554,6 +555,9 @@ void task_lcd(void){
 	does not attempt to use the semaphore before it is created! */
 	xSemaphore_P = xSemaphoreCreateBinary();
 	xSemaphore_M = xSemaphoreCreateBinary();
+	
+	xSemaphore_SNO = xSemaphoreCreateBinary();
+	xSemaphore_SNO_DONE = xSemaphoreCreateBinary();
 
     /* devemos iniciar a interrupcao no pino somente apos termos alocado
     os recursos (no caso semaforo), nessa funcao inicializamos 
@@ -579,8 +583,13 @@ void task_lcd(void){
 	while (true) {  
 		
 		if (xQueueReceive( xQueueTouch, &(touch), ( TickType_t )  500 / portTICK_PERIOD_MS)) {
-		update_screen(touch.x, touch.y);
-		printf("x:%d y:%d\n", touch.x, touch.y);
+			update_screen(touch.x, touch.y);
+			printf("x:%d y:%d\n", touch.x, touch.y);
+			if(touch.x>=SONECA_X && touch.y >= SONECA_Y && touch.x <= SONECA_X+SONECA_W && touch.y <=SONECA_Y+SONECA_H){
+				BaseType_t xHigherPriorityTaskWoken = pdFALSE;
+				xSemaphoreGiveFromISR(xSemaphore_SNO, &xHigherPriorityTaskWoken);
+				font_draw_text(&digital52, "SNOOZE", THERM_X+THERM_W, AIR_Y-75, 1);
+			}
 		}     
 		if( xSemaphoreTake(xSemaphore_M, ( TickType_t ) 500) == pdTRUE ){ // Checa se o botao de diminuir a potenica foi precionado
 			if(duty>0){
@@ -615,6 +624,26 @@ void task_lcd(void){
 			 ili9488_set_foreground_color(COLOR_CONVERT(COLOR_WHITE));
 			 ili9488_draw_filled_rectangle(THERM_X+THERM_W-5,THERM_Y,AIR_X-1,THERM_Y+42);
 			 font_draw_text(&digital52,stingLCD , THERM_X+THERM_W-3, THERM_Y, 1);
+		 }
+		 
+		 if ( xSemaphoreTake(xSemaphore_SNO_DONE, ( TickType_t ) 500) == pdTRUE ){ // Checa se o snooze acabou
+			/* Block for 180000ms. */
+// 			int time_in_s  = 60; // segundos
+// 			const TickType_t xDelay = time_in_s*1000 / portTICK_PERIOD_MS; // Converte ticks do CORE para ms
+// 			vTaskDelay(xDelay); // delay de 180 segundos
+// 			BaseType_t xHigherPriorityTaskWoken = pdFALSE;
+			 
+			duty = 0;
+			sprintf(stingLCD,"%d",duty);
+			
+			ili9488_set_foreground_color(COLOR_CONVERT(COLOR_WHITE));
+			ili9488_draw_filled_rectangle(THERM_X+THERM_W,AIR_Y-75,AIR_X+AIR_W+10,AIR_Y+-25);
+			 
+			font_draw_text(&digital52, stingLCD, AIR_X+AIR_W+5, AIR_Y, 1);
+			font_draw_text(&digital52, "%", AIR_X+AIR_W+80, AIR_Y, 1);
+
+			pwm_channel_update_duty(PWM0, &g_pwm_channel_led, 100-duty);
+			 	 
 		 }
 	}	 
 }
@@ -660,6 +689,20 @@ void task_update_clock(void){
 	}
 }
 
+void task_snooze(void){
+
+ 	/* Block for 180000ms. */
+	int time_in_s  = 18; // segundos
+	const TickType_t xDelay = time_in_s*1000 / portTICK_PERIOD_MS; // Converte ticks do CORE para ms
+	
+	while(true){
+//  		if ( xSemaphoreTake(xSemaphore_SNO, ( TickType_t ) 500) == pdTRUE ){ // Checa se os dados da temperatura estao prontos
+// 			vTaskDelay(xDelay); // delay de 180 segundos
+ 			BaseType_t xHigherPriorityTaskWoken = pdFALSE;
+  			xSemaphoreGiveFromISR(xSemaphore_SNO_DONE, &xHigherPriorityTaskWoken);
+//  		}
+	}
+}
 
 /************************************************************************/
 /* main                                                                 */
@@ -701,6 +744,10 @@ int main(void)
 	if (xTaskCreate(task_update_clock, "temp_read_task", TASK_LCD_STACK_SIZE, NULL, TASK_LCD_STACK_PRIORITY, NULL) != pdPASS) {
 		printf("Failed to create test pot task\r\n");
 	}
+	/* Create task to snooze */
+// 	if (xTaskCreate(task_snooze, "temp_read_task", TASK_LCD_STACK_SIZE, NULL, TASK_LCD_STACK_PRIORITY, NULL) != pdPASS) {
+// 		printf("Failed to create test pot task\r\n");
+// 	}
 
 
 	/* Start the scheduler. */
