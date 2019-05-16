@@ -573,8 +573,6 @@ void task_lcd(void){
 	draw_button(0);
 	uint8_t stingLCD[56];
   
-
-  
 	pwm_channel_update_duty(PWM0, &g_pwm_channel_led, 100-duty);
 
 	touchData touch;
@@ -586,7 +584,7 @@ void task_lcd(void){
 			update_screen(touch.x, touch.y);
 			printf("x:%d y:%d\n", touch.x, touch.y);
 			if(touch.x>=SONECA_X && touch.y >= SONECA_Y && touch.x <= SONECA_X+SONECA_W && touch.y <=SONECA_Y+SONECA_H){
-				BaseType_t xHigherPriorityTaskWoken = pdFALSE;
+				BaseType_t xHigherPriorityTaskWoken = pdTRUE;
 				xSemaphoreGiveFromISR(xSemaphore_SNO, &xHigherPriorityTaskWoken);
 				font_draw_text(&digital52, "SNOOZE", THERM_X+THERM_W, AIR_Y-75, 1);
 			}
@@ -627,12 +625,7 @@ void task_lcd(void){
 		 }
 		 
 		 if ( xSemaphoreTake(xSemaphore_SNO_DONE, ( TickType_t ) 500) == pdTRUE ){ // Checa se o snooze acabou
-			/* Block for 180000ms. */
-// 			int time_in_s  = 60; // segundos
-// 			const TickType_t xDelay = time_in_s*1000 / portTICK_PERIOD_MS; // Converte ticks do CORE para ms
-// 			vTaskDelay(xDelay); // delay de 180 segundos
-// 			BaseType_t xHigherPriorityTaskWoken = pdFALSE;
-			 
+
 			duty = 0;
 			sprintf(stingLCD,"%d",duty);
 			
@@ -673,9 +666,9 @@ void task_read_temp(void){
 void task_update_clock(void){
 	uint8_t stingCLK[56];
 	
-	rtc_get_time(RTC, &hour, &minu, &seg);
-	
 	RTC_init();
+
+	rtc_get_time(RTC, &hour, &minu, &seg);
 
 	/* Block for 60000ms. */
 	int time_in_s  = 60; // segundos
@@ -690,17 +683,20 @@ void task_update_clock(void){
 }
 
 void task_snooze(void){
+	
+	RTC_init();
 
  	/* Block for 180000ms. */
-	int time_in_s  = 18; // segundos
-	const TickType_t xDelay = time_in_s*1000 / portTICK_PERIOD_MS; // Converte ticks do CORE para ms
-	
+   	int time_in_s  = 18; // segundos
+   	const TickType_t xDelay = time_in_s*1000 / portTICK_PERIOD_MS; // Converte ticks do CORE para ms
+		
 	while(true){
-//  		if ( xSemaphoreTake(xSemaphore_SNO, ( TickType_t ) 500) == pdTRUE ){ // Checa se os dados da temperatura estao prontos
-// 			vTaskDelay(xDelay); // delay de 180 segundos
- 			BaseType_t xHigherPriorityTaskWoken = pdFALSE;
-  			xSemaphoreGiveFromISR(xSemaphore_SNO_DONE, &xHigherPriorityTaskWoken);
-//  		}
+		if ( xSemaphoreTake(xSemaphore_SNO, ( TickType_t ) 500) == pdTRUE ){ // Checa se o snooze acabou
+
+			vTaskDelay(xDelay); // delay de 180 segundos
+			BaseType_t xHigherPriorityTaskWoken = pdFALSE;
+			xSemaphoreGiveFromISR(xSemaphore_SNO_DONE, &xHigherPriorityTaskWoken);
+		}
 	}
 }
 
@@ -745,9 +741,9 @@ int main(void)
 		printf("Failed to create test pot task\r\n");
 	}
 	/* Create task to snooze */
-// 	if (xTaskCreate(task_snooze, "temp_read_task", TASK_LCD_STACK_SIZE, NULL, TASK_LCD_STACK_PRIORITY, NULL) != pdPASS) {
-// 		printf("Failed to create test pot task\r\n");
-// 	}
+	if (xTaskCreate(task_snooze, "temp_read_task", TASK_LCD_STACK_SIZE, NULL, TASK_LCD_STACK_PRIORITY, NULL) != pdPASS) {
+		printf("Failed to create test pot task\r\n");
+	}
 
 
 	/* Start the scheduler. */
@@ -756,7 +752,6 @@ int main(void)
   while(1){
 
   }
-
 
 	return 0;
 }
